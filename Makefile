@@ -1,7 +1,7 @@
 TARGET=rs97
 
-CHAINPREFIX := /opt/rs97-toolchain
-CROSS_COMPILE := $(CHAINPREFIX)/usr/bin/mipsel-linux-
+CHAINPREFIX := /opt/retrostone-toolchain
+CROSS_COMPILE := $(CHAINPREFIX)/usr/bin/arm-buildroot-linux-musleabihf-
 
 BUILDTIME=$(shell date +'\"%Y-%m-%d %H:%M\"')
 
@@ -13,13 +13,12 @@ SYSROOT     := $(shell $(CC) --print-sysroot)
 SDL_CFLAGS  := $(shell $(SYSROOT)/usr/bin/sdl-config --cflags)
 SDL_LIBS    := $(shell $(SYSROOT)/usr/bin/sdl-config --libs)
 
-CFLAGS = -ggdb -DTARGET_RS97 -DTARGET=$(TARGET) -D__BUILDTIME__="$(BUILDTIME)" -DLOG_LEVEL=3 -g3 $(SDL_CFLAGS) -I$(CHAINPREFIX)/usr/include/ -I$(SYSROOT)/usr/include/  -I$(SYSROOT)/usr/include/SDL/ -mhard-float -mips32 -mno-mips16
+CFLAGS = -ggdb -DTARGET_RS97 -DTARGET=$(TARGET) -D__BUILDTIME__="$(BUILDTIME)" -DLOG_LEVEL=3 -g3 $(SDL_CFLAGS) -I$(CHAINPREFIX)/usr/include/ -I$(SYSROOT)/usr/include/  -I$(SYSROOT)/usr/include/SDL/
 # -fno-rtti
 CFLAGS += -std=c++11 -fdata-sections -ffunction-sections -fno-exceptions -fno-math-errno -fno-threadsafe-statics -Os
 
 CXXFLAGS = $(CFLAGS)
-# LDFLAGS = $(SDL_LIBS) -lfreetype -lSDL_image -lSDL_ttf -lSDL_gfx -lSDL -lpthread
-LDFLAGS = $(SDL_LIBS) -lfreetype -lSDL_image -lSDL_ttf -lSDL -lpthread
+LDFLAGS = $(SDL_LIBS) -lfreetype -lSDL_image -lSDL_ttf -lSDL
 LDFLAGS +=-Wl,--as-needed -Wl,--gc-sections -s
 
 OBJDIR = objs/$(TARGET)

@@ -116,22 +116,6 @@ static const char *colorToString(enum color c) {
 	return colorNames[c];
 }
 
-char *hwVersion() {
-	static char buf[10] = { 0 };
-	FILE *f = fopen("/dev/mmcblk0", "r");
-	fseek(f, 440, SEEK_SET); // Set the new position at 10
-	if (f) {
-		for (int i = 0; i < 4; i++) {
-			int c = fgetc(f); // Get character
-			snprintf(buf + strlen(buf), sizeof(buf), "%02X", c);
-		}
-	}
-	fclose(f);
-
-	// printf("FW Checksum: %s\n", buf);
-	return buf;
-}
-
 char *ms2hms(uint32_t t, bool mm = true, bool ss = true) {
 	static char buf[10];
 
@@ -162,35 +146,10 @@ static void quit_all(int err) {
 }
 
 int memdev = 0;
-#ifdef TARGET_RS97
-	volatile uint32_t *memregs;
-#else
-	volatile uint16_t *memregs;
-#endif
-
-enum mmc_status {
-	MMC_REMOVE, MMC_INSERT, MMC_ERROR
-};
-
-int16_t curMMCStatus, preMMCStatus;
-int16_t getMMCStatus(void) {
-	if (memdev > 0) return !(memregs[0x10500 >> 2] >> 0 & 0b1);
-	return MMC_ERROR;
-}
-
-enum udc_status {
-	UDC_REMOVE, UDC_CONNECT, UDC_ERROR
-};
-
-int udcConnectedOnBoot;
-int16_t getUDCStatus(void) {
-	if (memdev > 0) return (memregs[0x10300 >> 2] >> 7 & 0b1);
-	return UDC_ERROR;
-}
 
 int16_t tvOutPrev = false, tvOutConnected;
 bool getTVOutStatus() {
-	if (memdev > 0) return !(memregs[0x10300 >> 2] >> 25 & 0b1);
+	//if (memdev > 0) return !(memregs[0x10300 >> 2] >> 25 & 0b1);
 	return false;
 }
 
@@ -199,8 +158,8 @@ enum vol_mode_t {
 };
 int16_t volumeModePrev, volumeMode;
 uint8_t getVolumeMode(uint8_t vol) {
-	if (!vol) return VOLUME_MODE_MUTE;
-	else if (memdev > 0 && !(memregs[0x10300 >> 2] >> 6 & 0b1)) return VOLUME_MODE_PHONES;
+	//if (!vol) return VOLUME_MODE_MUTE;
+	//else if (memdev > 0 && !(memregs[0x10300 >> 2] >> 6 & 0b1)) return VOLUME_MODE_PHONES;
 	return VOLUME_MODE_NORMAL;
 }
 
@@ -239,15 +198,6 @@ int main(int /*argc*/, char * /*argv*/[]) {
 	return 0;
 }
 
-bool exitMainThread = false;
-void* mainThread(void* param) {
-	GMenu2X *menu = (GMenu2X*)param;
-	while(!exitMainThread) {
-		sleep(1);
-	}
-	return NULL;
-}
-
 // GMenu2X *GMenu2X::instance = NULL;
 GMenu2X::GMenu2X() {
 	// instance = this;
@@ -261,9 +211,7 @@ GMenu2X::GMenu2X() {
 	path = "";
 	getExePath();
 
-#if defined(TARGET_GP2X) || defined(TARGET_WIZ) || defined(TARGET_CAANOO) || defined(TARGET_RS97)
 	hwInit();
-#endif
 
 #if !defined(TARGET_PC)
 	setenv("SDL_NOMOUSE", "1", 1);
@@ -278,18 +226,10 @@ GMenu2X::GMenu2X() {
 	}
 
 	s = new Surface();
-#if defined(TARGET_GP2X) || defined(TARGET_WIZ) || defined(TARGET_CAANOO)
-	//I'm forced to use SW surfaces since with HW there are issuse with changing the clock frequency
-	SDL_Surface *dbl = SDL_SetVideoMode(resX, resY, confInt["videoBpp"], SDL_SWSURFACE);
-	s->enableVirtualDoubleBuffer(dbl);
+
 	SDL_ShowCursor(0);
-#elif defined(TARGET_RS97)
-	SDL_ShowCursor(0);
-	s->ScreenSurface = SDL_SetVideoMode(320, 480, confInt["videoBpp"], SDL_HWSURFACE/*|SDL_DOUBLEBUF*/);
+	s->ScreenSurface = SDL_SetVideoMode(680, 448, confInt["videoBpp"], SDL_HWSURFACE/*|SDL_DOUBLEBUF*/);
 	s->raw = SDL_CreateRGBSurface(SDL_SWSURFACE, resX, resY, confInt["videoBpp"], 0, 0, 0, 0);
-#else
-	s->raw = SDL_SetVideoMode(resX, resY, confInt["videoBpp"], SDL_HWSURFACE|SDL_DOUBLEBUF);
-#endif
 
 	setWallpaper(confStr["wallpaper"]);
 
@@ -306,16 +246,6 @@ GMenu2X::GMenu2X() {
 	input.init(path + "input.conf");
 	setInputSpeed();
 
-#if defined(TARGET_GP2X)
-	initServices();
-	setGamma(confInt["gamma"]);
-	applyDefaultTimings();
-#elif defined(TARGET_RS97)
-	system("ln -sf $(mount | grep int_sd | cut -f 1 -d ' ') /tmp/.int_sd");
-	tvOutConnected = getTVOutStatus();
-	preMMCStatus = curMMCStatus = getMMCStatus();
-	udcConnectedOnBoot = getUDCStatus();
-#endif
 	volumeModePrev = volumeMode = getVolumeMode(confInt["globalVolume"]);
 	
 	initMenu();
@@ -330,8 +260,6 @@ GMenu2X::GMenu2X() {
 }
 
 void GMenu2X::main() {
-	pthread_t thread_id;
-
 	bool quit = false;
 	int i = 0, x = 0, y = 0, ix = 0, iy = 0;
 	uint32_t tickBattery = -4800, tickNow; //, tickMMC = 0; //, tickUSB = 0;
@@ -368,16 +296,6 @@ void GMenu2X::main() {
 			*iconManual = sc.skinRes("imgs/manual.png"),
 			*iconCPU = sc.skinRes("imgs/cpu.png"),
 			*iconMenu = sc.skinRes("imgs/menu.png");
-
-	if (pthread_create(&thread_id, NULL, mainThread, this)) {
-		ERROR("%s, failed to create main thread\n", __func__);
-	}
-
-#if defined(TARGET_RS97)
-	if (udcConnectedOnBoot == UDC_CONNECT) checkUDC();
-#endif
-
-	if (curMMCStatus == MMC_INSERT) mountSd(true);
 
 	while (!quit) {
 		tickNow = SDL_GetTicks();
@@ -479,11 +397,6 @@ void GMenu2X::main() {
 
 			// TRAY iconTrayShift,1
 			int iconTrayShift = 0;
-			if (curMMCStatus == MMC_INSERT) {
-				iconSD->blit(s, sectionBarRect.x + sectionBarRect.w - 38 + iconTrayShift * 20, sectionBarRect.y + sectionBarRect.h - 18);
-				iconTrayShift++;
-			}
-
 			if (menu->selLink() != NULL) {
 				if (menu->selLinkApp() != NULL) {
 					if (!menu->selLinkApp()->getManualPath().empty() && iconTrayShift < 2) {
@@ -595,8 +508,6 @@ void GMenu2X::main() {
 		// }
 	}
 
-	exitMainThread = true;
-	pthread_join(thread_id, NULL);
 	// delete btnContextMenu;
 	// btnContextMenu = NULL;
 }
@@ -650,12 +561,6 @@ bool GMenu2X::inputCommonActions(bool &inputAction) {
 			// VOLUME / MUTE
 			setVolume(confInt["globalVolume"], true);
 			return true;
-#ifdef TARGET_RS97
-		} else if (input[POWER]) {
-			udcConnectedOnBoot = UDC_CONNECT;
-			checkUDC();
-			return true;
-#endif
 		}
 	}
 
@@ -670,75 +575,8 @@ bool GMenu2X::inputCommonActions(bool &inputAction) {
 }
 
 void GMenu2X::hwInit() {
-#if defined(TARGET_GP2X) || defined(TARGET_WIZ) || defined(TARGET_CAANOO) || defined(TARGET_RS97)
-	memdev = open("/dev/mem", O_RDWR);
-	if (memdev < 0) WARNING("Could not open /dev/mem");
-#endif
+	// Put hardware specific init here (like GPIO etc...=
 
-	if (memdev > 0) {
-#if defined(TARGET_GP2X)
-		memregs = (uint16_t*)mmap(0, 0x10000, PROT_READ|PROT_WRITE, MAP_SHARED, memdev, 0xc0000000);
-		MEM_REG = &memregs[0];
-
-		//Fix tv-out
-		if (memregs[0x2800 >> 1] & 0x100) {
-			memregs[0x2906 >> 1] = 512;
-			//memregs[0x290C >> 1]=640;
-			memregs[0x28E4 >> 1] = memregs[0x290C >> 1];
-		}
-		memregs[0x28E8 >> 1] = 239;
-
-#elif defined(TARGET_WIZ) || defined(TARGET_CAANOO)
-		memregs = (uint16_t*)mmap(0, 0x20000, PROT_READ|PROT_WRITE, MAP_SHARED, memdev, 0xc0000000);
-#elif defined(TARGET_RS97)
-		memregs = (uint32_t*)mmap(0, 0x20000, PROT_READ | PROT_WRITE, MAP_SHARED, memdev, 0x10000000);
-#endif
-		if (memregs == MAP_FAILED) {
-			ERROR("Could not mmap hardware registers!");
-			close(memdev);
-		}
-	}
-
-#if defined(TARGET_GP2X)
-	if (fileExists("/etc/open2x")) fwType = "open2x";
-	else fwType = "gph";
-
-	f200 = fileExists("/dev/touchscreen/wm97xx");
-
-	//open2x
-	savedVolumeMode = 0;
-	volumeScalerNormal = VOLUME_SCALER_NORMAL;
-	volumeScalerPhones = VOLUME_SCALER_PHONES;
-	o2x_usb_net_on_boot = false;
-	o2x_usb_net_ip = "";
-	o2x_ftp_on_boot = false;
-	o2x_telnet_on_boot = false;
-	o2x_gp2xjoy_on_boot = false;
-	o2x_usb_host_on_boot = false;
-	o2x_usb_hid_on_boot = false;
-	o2x_usb_storage_on_boot = false;
-	usbnet = samba = inet = web = false;
-	if (fwType=="open2x") {
-		readConfigOpen2x();
-		//	VOLUME MODIFIER
-		switch(volumeMode) {
-			case VOLUME_MODE_MUTE:   setVolumeScaler(VOLUME_SCALER_MUTE); break;
-			case VOLUME_MODE_PHONES: setVolumeScaler(volumeScalerPhones); break;
-			case VOLUME_MODE_NORMAL: setVolumeScaler(volumeScalerNormal); break;
-		}
-	}
-	readCommonIni();
-	cx25874 = 0;
-	batteryHandle = 0;
-	// useSelectionPng = false;
-
-	batteryHandle = open(f200 ? "/dev/mmsp2adc" : "/dev/batt", O_RDONLY);
-	//if wm97xx fails to open, set f200 to false to prevent any further access to the touchscreen
-	if (f200) f200 = ts.init();
-#elif defined(TARGET_WIZ) || defined(TARGET_CAANOO)
-	/* get access to battery device */
-	batteryHandle = open("/dev/pollux_batt", O_RDONLY);
-#endif
 	INFO("System Init Done!");
 }
 
@@ -850,18 +688,7 @@ void GMenu2X::initMenu() {
 		else if (menu->getSections()[i] == "settings") {
 			menu->addActionLink(i, tr["Settings"], MakeDelegate(this, &GMenu2X::settings), tr["Configure system"], "skin:icons/configure.png");
 			menu->addActionLink(i, tr["Skin"], MakeDelegate(this, &GMenu2X::skinMenu), tr["Appearance & skin settings"], "skin:icons/skin.png");
-#if defined(TARGET_GP2X)
-			if (fwType == "open2x")
-				menu->addActionLink(i, "Open2x", MakeDelegate(this, &GMenu2X::settingsOpen2x), tr["Configure Open2x system settings"], "skin:icons/o2xconfigure.png");
-			menu->addActionLink(i, "USB SD", MakeDelegate(this, &GMenu2X::activateSdUsb), tr["Activate USB on SD"], "skin:icons/usb.png");
-			if (fwType == "gph" && !f200)
-				menu->addActionLink(i, "USB Nand", MakeDelegate(this, &GMenu2X::activateNandUsb), tr["Activate USB on NAND"], "skin:icons/usb.png");
-#elif defined(TARGET_RS97)
-			//menu->addActionLink(i, "Format", MakeDelegate(this, &GMenu2X::formatSd), tr["Format internal SD"], "skin:icons/format.png");
-			if (curMMCStatus == MMC_INSERT)
-				menu->addActionLink(i, tr["Umount"], MakeDelegate(this, &GMenu2X::umountSdDialog), tr["Umount external SD"], "skin:icons/eject.png");
-#endif
-
+			
 			if (fileExists(path + "log.txt"))
 				menu->addActionLink(i, tr["Log Viewer"], MakeDelegate(this, &GMenu2X::viewLog), tr["Displays last launched program's output"], "skin:icons/ebook.png");
 
@@ -913,8 +740,8 @@ void GMenu2X::settings() {
 	sd.addSetting(new MenuSettingInt(this, tr["Audio volume"], tr["Set the default audio volume"], &confInt["globalVolume"], 60, 0, 100));
 
 #if defined(TARGET_RS97)
-	sd.addSetting(new MenuSettingMultiString(this, tr["TV-out"], tr["TV-out signal encoding"], &confStr["TVOut"], &encodings));
-	sd.addSetting(new MenuSettingMultiString(this, tr["CPU settings"], tr["Define CPU and overclock settings"], &tmp, &opFactory, 0, MakeDelegate(this, &GMenu2X::cpuSettings)));
+	/*sd.addSetting(new MenuSettingMultiString(this, tr["TV-out"], tr["TV-out signal encoding"], &confStr["TVOut"], &encodings));
+	sd.addSetting(new MenuSettingMultiString(this, tr["CPU settings"], tr["Define CPU and overclock settings"], &tmp, &opFactory, 0, MakeDelegate(this, &GMenu2X::cpuSettings)));*/
 #endif
 	sd.addSetting(new MenuSettingMultiString(this, tr["Reset settings"], tr["Choose settings to reset back to defaults"], &tmp, &opFactory, 0, MakeDelegate(this, &GMenu2X::resetSettings)));
 
@@ -1036,7 +863,6 @@ void GMenu2X::readTmp() {
 		else if (name == "tvOutPrev") tvOutPrev = atoi(value.c_str());
 	}
 	if (TVOut != "NTSC" && TVOut != "PAL") TVOut = "OFF";
-	udcConnectedOnBoot = 0;
 	inf.close();
 	unlink("/tmp/gmenu2x.tmp");
 }
@@ -1373,16 +1199,11 @@ void GMenu2X::about() {
 
 	char *hms = ms2hms(SDL_GetTicks());
 	int32_t battlevel = getBatteryStatus();
-	char *hwv = hwVersion();
 
 	stringstream ss; ss << battlevel; ss >> batt;
 
 	temp = tr["Build date: "] + __DATE__ + "\n";
 	temp += tr["Uptime: "] + hms + "\n";
-#ifdef TARGET_RS97
-	temp += tr["Battery: "] + ((battlevel < 0 || battlevel > 10000) ? tr["Charging"] : batt) + "\n";
-	temp += tr["Checksum: 0x"] + hwv + "\n";
-#endif
 	// temp += tr["Storage:"];
 	// temp += "\n    " + tr["Root: "] + getDiskFree("/");
 	// temp += "\n    " + tr["Internal: "] + getDiskFree("/mnt/int_sd");
@@ -1539,26 +1360,6 @@ void GMenu2X::hwCheck() {
 		// printbin("F", memregs[0x10500 >> 2]);
 		// printf("\n\e[K\e[u");
 
-		curMMCStatus = getMMCStatus();
-		if (preMMCStatus != curMMCStatus) {
-			preMMCStatus = curMMCStatus;
-			string msg;
-
-			if (curMMCStatus == MMC_INSERT) msg = tr["SD card connected"];
-			else msg = tr["SD card removed"];
-
-			MessageBox mb(this, msg, "skin:icons/eject.png");
-			mb.setAutoHide(1000);
-			mb.exec();
-
-			if (curMMCStatus == MMC_INSERT) {
-				mountSd(true);
-				menu->addActionLink(menu->getSectionIndex("settings"), tr["Umount"], MakeDelegate(this, &GMenu2X::umountSdDialog), tr["Umount external SD"], "skin:icons/eject.png");
-			} else {
-				umountSd(true);
-			}
-		}
-
 		tvOutConnected = getTVOutStatus();
 		if (tvOutPrev != tvOutConnected) {
 			tvOutPrev = tvOutConnected;
@@ -1686,113 +1487,11 @@ void GMenu2X::poweroffDialog() {
 
 void GMenu2X::setTVOut(string TVOut) {
 #if defined(TARGET_RS97)
-	system("echo 0 > /proc/jz/tvselect"); // always reset tv out
+	/*system("echo 0 > /proc/jz/tvselect"); // always reset tv out
 	if (TVOut == "NTSC")		system("echo 2 > /proc/jz/tvselect");
-	else if (TVOut == "PAL")	system("echo 1 > /proc/jz/tvselect");
+	else if (TVOut == "PAL")	system("echo 1 > /proc/jz/tvselect");*/
 #endif
 }
-
-void GMenu2X::mountSd(bool ext) {
-	if (ext)	system("par=$(( $(readlink /tmp/.int_sd | head -c -3 | tail -c 1) ^ 1 )); par=$(ls /dev/mmcblk$par* | tail -n 1); sync; umount -fl /mnt/ext_sd; mount -t vfat -o rw,utf8 $par /mnt/ext_sd");
-	else		system("par=$(readlink /tmp/.int_sd | head -c -3 | tail -c 1); par=$(ls /dev/mmcblk$par* | tail -n 1); sync; umount -fl /mnt/int_sd; mount -t vfat -o rw,utf8 $par /mnt/int_sd");
-}
-
-void GMenu2X::umountSd(bool ext) {
-	if (ext)	system("sync; umount -fl /mnt/ext_sd");
-	else		system("sync; umount -fl /mnt/int_sd");
-}
-
-#if defined(TARGET_RS97)
-void GMenu2X::umountSdDialog() {
-	MessageBox mb(this, tr["Umount SD card?"], "skin:icons/eject.png");
-	mb.setButton(CONFIRM, tr["Yes"]);
-	mb.setButton(CANCEL,  tr["No"]);
-	if (mb.exec() == CONFIRM) {
-		umountSd(true);
-		menu->deleteSelectedLink();
-		MessageBox mb(this, tr["SD card umounted"], "skin:icons/eject.png");
-		mb.setAutoHide(1000);
-		mb.exec();
-	}
-}
-
-void GMenu2X::checkUDC() {
-	if (getUDCStatus() == UDC_CONNECT) {
-		if (!fileExists("/sys/devices/platform/musb_hdrc.0/gadget/gadget-lun1/file")) {
-			MessageBox mb(this, tr["This device does not support USB mount."], "skin:icons/usb.png");
-			mb.setButton(CANCEL,  tr["Charger"]);
-			mb.exec();
-			return;
-		}
-
-		MessageBox mb(this, tr["Select USB mode:"], "skin:icons/usb.png");
-		mb.setButton(CONFIRM, tr["USB Drive"]);
-		mb.setButton(CANCEL,  tr["Charger"]);
-		if (mb.exec() == CONFIRM) {
-			umountSd(false);
-			system("echo \"\" > /sys/devices/platform/musb_hdrc.0/gadget/gadget-lun1/file; par=$(readlink /tmp/.int_sd | head -c -3 | tail -c 1); par=$(ls /dev/mmcblk$par* | tail -n 1); echo \"$par\" > /sys/devices/platform/musb_hdrc.0/gadget/gadget-lun1/file");
-			INFO("%s, connect USB disk for internal SD", __func__);
-
-			if (getMMCStatus() == MMC_INSERT) {
-				umountSd(true);
-				system("echo \"\" > /sys/devices/platform/musb_hdrc.0/gadget/gadget-lun0/file; par=$(( $(readlink /tmp/.int_sd | head -c -3 | tail -c 1) ^ 1 )); par=$(ls /dev/mmcblk$par* | tail -n 1); echo \"$par\" > /sys/devices/platform/musb_hdrc.0/gadget/gadget-lun0/file");
-				INFO("%s, connect USB disk for external SD", __func__);
-			}
-
-			sc[confStr["wallpaper"]]->blit(s,0,0);
-
-			{
-				MessageBox mb(this, tr["USB Drive Connected"], "skin:icons/usb.png");
-				mb.setAutoHide(500);
-				mb.exec();
-			}
-
-			powerManager->clearTimer();
-
-			while (udcConnectedOnBoot == UDC_CONNECT && getUDCStatus() == UDC_CONNECT) {
-				input.update();
-				if ( input[MENU] && input[POWER]) udcConnectedOnBoot = UDC_REMOVE;
-			}
-
-			{
-				MessageBox mb(this, tr["USB disconnected. Rebooting..."], "skin:icons/usb.png");
-				mb.setAutoHide(200);
-				mb.exec();
-			}
-
-			system("sync; reboot & sleep 1m");
-
-			system("echo '' > /sys/devices/platform/musb_hdrc.0/gadget/gadget-lun0/file");
-			mountSd(false);
-			INFO("%s, disconnect usbdisk for internal sd", __func__);
-			if (getMMCStatus() == MMC_INSERT) {
-				system("echo '' > /sys/devices/platform/musb_hdrc.0/gadget/gadget-lun1/file");
-				mountSd(true);
-				INFO("%s, disconnect USB disk for external SD", __func__);
-			}
-			// powerManager->resetSuspendTimer();
-		}
-	}
-}
-
-void GMenu2X::formatSd() {
-	MessageBox mb(this, tr["Format internal SD card?"], "skin:icons/format.png");
-	mb.setButton(CONFIRM, tr["Yes"]);
-	mb.setButton(CANCEL,  tr["No"]);
-	if (mb.exec() == CONFIRM) {
-		MessageBox mb(this, tr["Formatting internal SD card..."], "skin:icons/format.png");
-		mb.setAutoHide(100);
-		mb.exec();
-
-		system("/usr/bin/format_int_sd.sh");
-		{ // new mb scope
-			MessageBox mb(this, tr["Complete!"]);
-			mb.setAutoHide(0);
-			mb.exec();
-		}
-	}
-}
-#endif
 
 void GMenu2X::contextMenu() {
 	vector<MenuOption> voices;
@@ -2052,13 +1751,14 @@ void GMenu2X::deleteSection() {
 
 int32_t GMenu2X::getBatteryStatus() {
 	char buf[32] = "-1";
-#if defined(TARGET_RS97)
+	/* To check later - Gameblabla */
+/*#if defined(TARGET_RS97)
 	FILE *f = fopen("/proc/jz/battery", "r");
 	if (f) {
 		fgets(buf, sizeof(buf), f);
 	}
 	fclose(f);
-#endif
+#endif*/
 	return atol(buf);
 }
 
@@ -2074,54 +1774,6 @@ if (confStr["batteryType"] == "BL-5B") {
 	else if (val > 3600) return 1; // 20%
 	return 0; // 0% :(
 }
-
-#if defined(TARGET_GP2X)
-	//if (batteryHandle<=0) return 6; //AC Power
-	if (f200) {
-		MMSP2ADC val;
-		read(batteryHandle, &val, sizeof(MMSP2ADC));
-
-		if (val.batt==0) return 5;
-		if (val.batt==1) return 3;
-		if (val.batt==2) return 1;
-		if (val.batt==3) return 0;
-		return 6;
-	} else {
-		int battval = 0;
-		uint16_t cbv, min=900, max=0;
-
-		for (int i = 0; i < BATTERY_READS; i ++) {
-			if ( read(batteryHandle, &cbv, 2) == 2) {
-				battval += cbv;
-				if (cbv>max) max = cbv;
-				if (cbv<min) min = cbv;
-			}
-		}
-
-		battval -= min+max;
-		battval /= BATTERY_READS-2;
-
-		if (battval>=850) return 6;
-		if (battval>780) return 5;
-		if (battval>740) return 4;
-		if (battval>700) return 3;
-		if (battval>690) return 2;
-		if (battval>680) return 1;
-	}
-
-#elif defined(TARGET_WIZ) || defined(TARGET_CAANOO)
-	uint16_t cbv;
-	if ( read(batteryHandle, &cbv, 2) == 2) {
-		// 0=fail, 1=100%, 2=66%, 3=33%, 4=0%
-		switch (cbv) {
-			case 4: return 1;
-			case 3: return 2;
-			case 2: return 4;
-			case 1: return 5;
-			default: return 6;
-		}
-	}
-#else
 
 	val = constrain(val, 0, 4500);
 
@@ -2146,7 +1798,6 @@ if (confStr["batteryType"] == "BL-5B") {
 
 	// return 5 - 5*(100-val)/(100);
 	return 5 - 5 * (max - val) / (max - min);
-#endif
 }
 
 void GMenu2X::setInputSpeed() {
@@ -2173,38 +1824,11 @@ void GMenu2X::setCPU(uint32_t mhz) {
 	if (memdev > 0) {
 		DEBUG("Setting clock to %d", mhz);
 
-#if defined(TARGET_GP2X)
-		uint32_t v, mdiv, pdiv=3, scale=0;
-
-		#define SYS_CLK_FREQ 7372800
-		mhz *= 1000000;
-		mdiv = (mhz * pdiv) / SYS_CLK_FREQ;
-		mdiv = ((mdiv-8)<<8) & 0xff00;
-		pdiv = ((pdiv-2)<<2) & 0xfc;
-		scale &= 3;
-		v = mdiv | pdiv | scale;
-		MEM_REG[0x910>>1] = v;
-
-#elif defined(TARGET_CAANOO) || defined(TARGET_WIZ)
-		volatile uint32_t *memregl = static_cast<volatile uint32_t*>((volatile void*)memregs);
-		int mdiv, pdiv = 9, sdiv = 0;
-		uint32_t v;
-
-		#define SYS_CLK_FREQ 27
-		#define PLLSETREG0   (memregl[0xF004>>2])
-		#define PWRMODE      (memregl[0xF07C>>2])
-		mdiv = (mhz * pdiv) / SYS_CLK_FREQ;
-		if (mdiv & ~0x3ff) return;
-		v = pdiv<<18 | mdiv<<8 | sdiv;
-
-		PLLSETREG0 = v;
-		PWRMODE |= 0x8000;
-		for (int i = 0; (PWRMODE & 0x8000) && i < 0x100000; i++);
-
-#elif defined(TARGET_RS97)
-		uint32_t m = mhz / 6;
-		memregs[0x10 >> 2] = (m << 24) | 0x090520;
-		INFO("Set CPU clock: %d", mhz);
+	/* Should we even allow Overclocking on the Retrostone ??? - Gameblabla */
+#if defined(TARGET_RS97)
+	/*uint32_t m = mhz / 6;
+	memregs[0x10 >> 2] = (m << 24) | 0x090520;
+	INFO("Set CPU clock: %d", mhz);*/
 #endif
 		setTVOut(TVOut);
 	}
@@ -2212,7 +1836,8 @@ void GMenu2X::setCPU(uint32_t mhz) {
 
 int GMenu2X::getVolume() {
 	int vol = -1;
-	uint32_t soundDev = open("/dev/mixer", O_RDONLY);
+	/* Needs to be done using ALSA - Gameblabla */
+	/*uint32_t soundDev = open("/dev/mixer", O_RDONLY);
 
 	if (soundDev) {
 #if defined(TARGET_RS97)
@@ -2225,7 +1850,7 @@ int GMenu2X::getVolume() {
 			//just return one channel , not both channels, they're hopefully the same anyways
 			return vol & 0xFF;
 		}
-	}
+	}*/
 	return vol;
 }
 
@@ -2266,7 +1891,8 @@ int GMenu2X::setVolume(int val, bool popup) {
 		writeConfig();
 	}
 
-	uint32_t soundDev = open("/dev/mixer", O_RDWR);
+	/* Needs to be done using ALSA - Gameblabla */
+	/*uint32_t soundDev = open("/dev/mixer", O_RDWR);
 	if (soundDev) {
 		int vol = (val << 8) | val;
 #if defined(TARGET_RS97)
@@ -2276,19 +1902,20 @@ int GMenu2X::setVolume(int val, bool popup) {
 #endif
 		close(soundDev);
 
-	}
+	}*/
 	volumeMode = getVolumeMode(val);
 	return val;
 }
 
 int GMenu2X::getBacklight() {
 	char buf[32] = "-1";
+	// Is it even possible on the Retrostone ??? - Gameblabla
 #if defined(TARGET_RS97)
-	FILE *f = fopen("/proc/jz/lcd_backlight", "r");
+	/*FILE *f = fopen("/proc/jz/lcd_backlight", "r");
 	if (f) {
 		fgets(buf, sizeof(buf), f);
 	}
-	fclose(f);
+	fclose(f);*/
 #endif
 	return atoi(buf);
 }
@@ -2335,10 +1962,11 @@ int GMenu2X::setBacklight(int val, bool popup) {
 		writeConfig();
 	}
 
+	/* Backlight : Is it even possible ??? - Gameblabla */
 #if defined(TARGET_RS97)
-	char buf[34] = {0};
+	/*char buf[34] = {0};
 	sprintf(buf, "echo %d > /proc/jz/lcd_backlight", val);
-	system(buf);
+	system(buf);*/
 #endif
 
 	return val;
