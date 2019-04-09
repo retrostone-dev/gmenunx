@@ -213,10 +213,8 @@ GMenu2X::GMenu2X() {
 
 	hwInit();
 
-#if !defined(TARGET_PC)
 	setenv("SDL_NOMOUSE", "1", 1);
-#endif
-	setenv("SDL_FBCON_DONT_CLEAR", "1", 0);
+	//setenv("SDL_FBCON_DONT_CLEAR", "1", 0);
 	setDateTime();
 
 	//Screen
@@ -228,7 +226,7 @@ GMenu2X::GMenu2X() {
 	s = new Surface();
 
 	SDL_ShowCursor(0);
-	s->ScreenSurface = SDL_SetVideoMode(680, 448, confInt["videoBpp"], SDL_HWSURFACE/*|SDL_DOUBLEBUF*/);
+	s->ScreenSurface = SDL_SetVideoMode(0, 0, confInt["videoBpp"], SDL_HWSURFACE/*|SDL_DOUBLEBUF*/);
 	s->raw = SDL_CreateRGBSurface(SDL_SWSURFACE, resX, resY, confInt["videoBpp"], 0, 0, 0, 0);
 
 	setWallpaper(confStr["wallpaper"]);
@@ -515,7 +513,8 @@ void GMenu2X::main() {
 bool GMenu2X::inputCommonActions(bool &inputAction) {
 	// INFO("SDL_GetTicks(): %d\tsuspendActive: %d", SDL_GetTicks(), powerManager->suspendActive);
 
-	if (powerManager->suspendActive) {
+	/* Disable suspend, for now at least... */
+	/*if (powerManager->suspendActive) {
 		// SUSPEND ACTIVE
 		input.setWakeUpInterval(0);
 		while (!input[POWER]) {
@@ -524,7 +523,7 @@ bool GMenu2X::inputCommonActions(bool &inputAction) {
 		powerManager->doSuspend(0);
 		input.setWakeUpInterval(1000);
 		return true;
-	}
+	}*/
 
 	if (inputAction) powerManager->resetSuspendTimer();
 	input.setWakeUpInterval(1000);
@@ -734,7 +733,7 @@ void GMenu2X::settings() {
 	sd.addSetting(new MenuSettingMultiString(this, tr["Battery profile"], tr["Set the battery discharge profile"], &confStr["batteryType"], &batteryType));
 	sd.addSetting(new MenuSettingBool(this, tr["Save last selection"], tr["Save the last selected link and section on exit"], &confInt["saveSelection"]));
 	sd.addSetting(new MenuSettingBool(this, tr["Output logs"], tr["Logs the link's output to read with Log Viewer"], &confInt["outputLogs"]));
-	sd.addSetting(new MenuSettingInt(this,tr["Screen timeout"], tr["Seconds to turn display off if inactive"], &confInt["backlightTimeout"], 30, 10, 300));
+	/*sd.addSetting(new MenuSettingInt(this,tr["Screen timeout"], tr["Seconds to turn display off if inactive"], &confInt["backlightTimeout"], 30, 10, 300));*/
 	sd.addSetting(new MenuSettingInt(this,tr["Power timeout"], tr["Minutes to poweroff system if inactive"], &confInt["powerTimeout"], 10, 1, 300));
 	sd.addSetting(new MenuSettingInt(this,tr["Backlight"], tr["Set LCD backlight"], &confInt["backlight"], 70, 1, 100));
 	sd.addSetting(new MenuSettingInt(this, tr["Audio volume"], tr["Set the default audio volume"], &confInt["globalVolume"], 60, 0, 100));
@@ -832,8 +831,9 @@ void GMenu2X::resetSettings() {
 	}
 }
 
+/* No CPU settings (and problably never will be) */
 void GMenu2X::cpuSettings() {
-	SettingsDialog sd(this, ts, tr["CPU settings"], "skin:icons/configure.png");
+	/*SettingsDialog sd(this, ts, tr["CPU settings"], "skin:icons/configure.png");
 	sd.addSetting(new MenuSettingInt(this, tr["Default CPU clock"], tr["Set the default working CPU frequency"], &confInt["cpuMenu"], 528, 528, 600, 6));
 	sd.addSetting(new MenuSettingInt(this, tr["Maximum CPU clock "], tr["Maximum overclock for launching links"], &confInt["cpuMax"], 624, 600, 1200, 6));
 	sd.addSetting(new MenuSettingInt(this, tr["Minimum CPU clock "], tr["Minimum underclock used in Suspend mode"], &confInt["cpuMin"], 342, 200, 528, 6));
@@ -841,7 +841,7 @@ void GMenu2X::cpuSettings() {
 	if (sd.exec() && sd.edited() && sd.save) {
 		setCPU(confInt["cpuMenu"]);
 		writeConfig();
-	}
+	}*/
 }
 
 void GMenu2X::readTmp() {
